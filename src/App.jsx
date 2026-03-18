@@ -22,6 +22,9 @@ const COMMON_ICONS = [
   '日历', '电话', '邮件', '定位', '刷新'
 ];
 
+// Nano Banana API 基础 URL
+const API_BASE_URL = 'https://api.kie.ai/api/v1';
+
 function App() {
   const [icons, setIcons] = useState([]);
   const [iconInput, setIconInput] = useState('');
@@ -94,6 +97,7 @@ function App() {
     setLoading(true);
     try {
       const style = customStyle || selectedStyle;
+      // 调用后端 API 生成提示词（用于本地开发）
       const res = await fetch('/api/create-prompt', {
         method: 'POST',
         headers: {
@@ -102,6 +106,18 @@ function App() {
         },
         body: JSON.stringify({ icons, style })
       });
+
+      // 如果本地 API 不可用，在前端直接生成提示词
+      if (!res.ok) {
+        // 在前端生成提示词（简化版）
+        const iconList = icons[0];
+        const prompt = `A professional UI icon featuring ${iconList}.\n\n**[Style & Medium]**\n${style}.\n\n**[Material & Texture]**\nHigh quality rendering.\n\n**[Lighting, Rendering & Color]**\nProfessional studio lighting.\n\n**[UI Constraints]**\nProfessional UI design asset, solid background, isolated object, front-facing, centered composition, vector-like clean edges, high resolution, 8k.\n\n--v 6.0 --ar 1:1 --stylize 250`;
+        setGeneratedPrompt(prompt);
+        setTaskStatus('提示词生成成功');
+        setLoading(false);
+        return;
+      }
+
       const data = await res.json();
       if (data.prompt) {
         setGeneratedPrompt(data.prompt);
@@ -135,32 +151,46 @@ function App() {
 
     try {
       const style = customStyle || selectedStyle;
-      const res = await fetch('/api/generate-icons', {
+
+      // 在前端生成提示词
+      const iconList = icons[0];
+      const prompt = `A professional UI icon featuring ${iconList}.\n\n**[Style & Medium]**\n${style}.\n\n**[Material & Texture]**\nHigh quality rendering.\n\n**[Lighting, Rendering & Color]**\nProfessional studio lighting.\n\n**[UI Constraints]**\nProfessional UI design asset, solid background, isolated object, front-facing, centered composition, vector-like clean edges, high resolution, 8k.\n\n--v 6.0 --ar 1:1 --stylize 250`;
+
+      // 直接调用 Nano Banana API
+      const res = await fetch(`${API_BASE_URL}/jobs/createTask`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': apiKey
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          icons,
-          style,
-          aspect_ratio: '1:1',
-          resolution: '2K',
-          output_format: 'png'
+          model: 'nano-banana-2',
+          input: {
+            prompt,
+            aspect_ratio: '1:1',
+            resolution: '2K',
+            output_format: 'png'
+          }
         })
       });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.msg || `HTTP ${res.status}`);
+      }
+
       const data = await res.json();
 
-      if (data.taskId) {
-        setTaskId(data.taskId);
-        taskIdRef.current = data.taskId;
-        setGeneratedPrompt(data.prompt);
+      if (data.data && data.data.taskId) {
+        setTaskId(data.data.taskId);
+        taskIdRef.current = data.data.taskId;
+        setGeneratedPrompt(prompt);
         setTaskStatus('任务已创建，正在生成中...');
 
         const interval = setInterval(pollTaskStatus, 3000);
         setPollingInterval(interval);
       } else {
-        setTaskStatus('错误：' + (data.error || '未知错误'));
+        setTaskStatus('错误：' + (data.msg || '未知错误'));
       }
     } catch (error) {
       setTaskStatus('请求失败：' + error.message);
@@ -173,11 +203,17 @@ function App() {
     if (!taskIdRef.current) return;
 
     try {
-      const res = await fetch(`/api/task/${taskIdRef.current}`, {
+      const res = await fetch(`${API_BASE_URL}/jobs/recordInfo?taskId=${taskIdRef.current}`, {
         headers: {
-          'X-API-Key': apiKey
+          'Authorization': `Bearer ${apiKey}`
         }
       });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.msg || `HTTP ${res.status}`);
+      }
+
       const data = await res.json();
       console.log('轮询响应:', data);
 
